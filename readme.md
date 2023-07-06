@@ -14,17 +14,17 @@ I'm using go workspace to manage my projects. See here: https://github.com/golan
 
 cubic contains a single file that to setup, prove and verify a circuit. It is located in the gnarks folder.
 to run it, simply run the following command:
-`
+```bash
 go mod tidy # to fetch dependencies
 go run cubic/cubic.go
-`
+```
 
-Other modules such as setup, prove, and verify implement each step separately and require file transfers to work. Running them is similar to running cubic as described above.
+Other modules such as `setup`, `prove`, and `verify` implement each step separately and require file transfers to work. Running them is similar to running cubic as described above.
 
-Running setup should output: proving key, verification key, and a constraint system. The constraint system is a file that contains the constraints of the circuit. It is used by the prover to generate a proof.
+Running `setup` should output: proving key, verification key, and a constraint system. The constraint system is a file that contains the constraints of the circuit. It is used by the prover to generate a proof.
 
-Running prove should output: a proof and a public witness. The public witness is used by the verifier to verify the proof.
+Running `prove` should output: a proof and a public witness. The public witness is used by the verifier to verify the proof.
 
-Running verify should output: true if the proof is valid, false otherwise.
+Running `verify` should output: true if the proof is valid, false otherwise.
 
 
