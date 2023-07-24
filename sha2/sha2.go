@@ -94,61 +94,58 @@ func padded_sha_input(input []uint8) []uint8 {
 // It performs one compression of SHA when given an input of length 16 x 32 = 256
 // and a "checkpoint" state H
 
-func sha2_compression(input, H []uint32) []uint32 {
+func sha2_compression(input []uint32, H []uint32) []uint32 {
 	if len(input) != 16 {
 		panic("This method only accepts 16 32-bit words as inputs")
 	}
 	if len(H) != 8 {
-		panic("This method only accepts 16 32-bit words as h_prev")
+		panic("This method only accepts 8 32-bit words as h_prev")
 	}
 
-	words := make([]uint32, 64)
-	a := H[0]
-	b := H[1]
-	c := H[2]
-	d := H[3]
-	e := H[4]
-	f := H[5]
-	g := H[6]
-	h := H[7]
+	var H0, H1, H2, H3, H4, H5, H6, H7 uint32
+	H0, H1, H2, H3, H4, H5, H6, H7 = H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7]
 
-	for j := 0; j < 16; j++ {
-		words[j] = input[j]
+	words := make([]uint32, 64)
+	copy(words, input)
+
+	// Use a lookup table for rotations
+	rotate := func(x, k uint32) uint32 {
+		return (x >> k) | (x << (32 - k))
 	}
 
 	for j := 16; j < 64; j++ {
-		s0 := rotateRight(words[j-15], 7) ^ rotateRight(words[j-15], 18) ^ (words[j-15] >> 3)
-		s1 := rotateRight(words[j-2], 17) ^ rotateRight(words[j-2], 19) ^ (words[j-2] >> 10)
+		s0 := rotate(words[j-15], 7) ^ rotate(words[j-15], 18) ^ (words[j-15] >> 3)
+		s1 := rotate(words[j-2], 17) ^ rotate(words[j-2], 19) ^ (words[j-2] >> 10)
 		words[j] = words[j-16] + s0 + words[j-7] + s1
 	}
 
 	for j := 0; j < 64; j++ {
-		s0 := rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22)
-		maj := (a & b) ^ (a & c) ^ (b & c)
+		s0 := rotate(H0, 2) ^ rotate(H0, 13) ^ rotate(H0, 22)
+		maj := (H0 & H1) ^ (H0 & H2) ^ (H1 & H2)
 		t2 := s0 + maj
 
-		s1 := rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25)
-		ch := e&f ^ ^e&g
+		s1 := rotate(H4, 6) ^ rotate(H4, 11) ^ rotate(H4, 25)
+		ch := (H4 & H5) ^ (^H4 & H6)
+		t1 := H7 + s1 + ch + uint32(K_CONST[j]) + words[j]
 
-		t1 := h + s1 + ch + uint32(K_CONST[j]) + words[j]
-		h = g
-		g = f
-		f = e
-		e = d + t1
-		d = c
-		c = b
-		b = a
-		a = t1 + t2
+		H7 = H6
+		H6 = H5
+		H5 = H4
+		H4 = H3 + t1
+		H3 = H2
+		H2 = H1
+		H1 = H0
+		H0 = t1 + t2
 	}
 
-	H[0] = H[0] + a
-	H[1] = H[1] + b
-	H[2] = H[2] + c
-	H[3] = H[3] + d
-	H[4] = H[4] + e
-	H[5] = H[5] + f
-	H[6] = H[6] + g
-	H[7] = H[7] + h
+	H[0] += H0
+	H[1] += H1
+	H[2] += H2
+	H[3] += H3
+	H[4] += H4
+	H[5] += H5
+	H[6] += H6
+	H[7] += H7
 
 	return H
 }
@@ -156,13 +153,17 @@ func sha2_compression(input, H []uint32) []uint32 {
 // Returns the length of the pad required for a given input length
 
 func get_pad_length(input_length uint16) uint8 {
-	last_block_length := uint8(input_length % 64)
-	var pad_length uint8
+
+	last_block_length := uint8(input_length % uint16(64))
+
+	var pad_length byte
+
 	if last_block_length <= byte(55) {
 		pad_length = byte(64) - last_block_length
 	} else {
 		pad_length = byte(128) - last_block_length
 	}
+
 	return pad_length
 }
 
@@ -170,6 +171,7 @@ func get_pad_length(input_length uint16) uint8 {
 
 func get_pad_from_length_in_bytes(length uint16) []byte {
 	pad_length := get_pad_length(length)
+
 	input_len_in_bits := utils.Convert_64_to_8(uint64(length) * uint64(8))
 
 	// It'll be less than 72 but 128 makes it an even multiple of 64
@@ -205,13 +207,21 @@ func get_pad_from_length_in_bytes(length uint16) []byte {
 // full_tail_length
 // prefix_tail_length - the length of the prefix of full_tail that belongs to the prefix string
 
-func Double_SHA_from_checkpoint(H_checkpoint []uint32, full_length uint16, prefix_length uint16,
+func Double_SHA_from_checkpoint(
+	H_checkpoint []uint32,
+	full_length uint16, prefix_length uint16,
 	full_tail_string []byte,
 	full_tail_length byte,
 	prefix_tail_length byte) [][]byte {
 
-	prefix_output := SHA2_of_tail(full_tail_string, prefix_tail_length, prefix_length, H_checkpoint)
-	full_output := SHA2_of_tail(full_tail_string, full_tail_length, full_length, H_checkpoint)
+	H_checkpoint_copy_1 := make([]uint32, 8)
+	H_checkpoint_copy_2 := make([]uint32, 8)
+
+	copy(H_checkpoint_copy_1, H_checkpoint)
+	copy(H_checkpoint_copy_2, H_checkpoint)
+
+	prefix_output := SHA2_of_tail(full_tail_string, prefix_tail_length, prefix_length, H_checkpoint_copy_1)
+	full_output := SHA2_of_tail(full_tail_string, full_tail_length, full_length, H_checkpoint_copy_2)
 	return [][]byte{prefix_output, full_output}
 
 }
@@ -221,7 +231,27 @@ func Double_SHA_from_checkpoint(H_checkpoint []uint32, full_length uint16, prefi
 // and computes the hash of the tail with the checkpoint.
 // The full string's length is given to calculate the pad.
 
+func i32tob(val []uint32) []byte {
+	r := make([]byte, 4*len(val))
+	for i := uint32(0); i < uint32(len(val)); i++ {
+		r[4*i] = byte((val[i] >> (24)) & 0xff)
+		r[4*i+1] = byte((val[i] >> (16)) & 0xff)
+		r[4*i+2] = byte((val[i] >> (8)) & 0xff)
+		r[4*i+3] = byte((val[i]) & 0xff)
+	}
+	return r
+}
+
+func i8to32(val []byte) []uint32 {
+	r := make([]uint32, len(val)/4)
+	for i := 0; i < len(val)/4; i++ {
+		r[i] = uint32(val[4*i])<<24 | uint32(val[4*i+1])<<16 | uint32(val[4*i+2])<<8 | uint32(val[4*i+3])
+	}
+	return r
+}
+
 func SHA2_of_tail(tail []byte, tail_length byte, full_length uint16, H_checkpoint []uint32) []byte {
+
 	// Calculate the pad
 	pad_len_in_bytes := get_pad_length(full_length)
 	pad := get_pad_from_length_in_bytes(full_length)
@@ -231,6 +261,7 @@ func SHA2_of_tail(tail []byte, tail_length byte, full_length uint16, H_checkpoin
 
 	// This is either 1 or 2 depending on the pad length
 	num_compressions := (tail_length + pad_len_in_bytes) / byte(64)
+
 	for i := 0; i < 128; i++ {
 		if byte(i) < tail_length {
 			tail_with_pad[i] = tail[i]
@@ -253,11 +284,13 @@ func SHA2_of_tail(tail []byte, tail_length byte, full_length uint16, H_checkpoin
 			for j := 0; j < 64; j++ {
 				block[j] = tail_with_pad[i*64+j]
 			}
-			H_value = sha2_compression(utils.Convert_8_to_32(block), H_value)
+
+			H_value = sha2_compression(i8to32(block), H_value)
 		}
 	}
 
 	output = H_value
+
 	return utils.Convert_32_to_8(output)
 }
 
@@ -358,7 +391,6 @@ func perform_compressions_general(input []byte, num_compressions byte, H_checkpo
 
 	// Iterate for the maximum possible times that may be required depending on the maximum input length
 	// NOTE: input must be long enough to support maximum number of iterations
-	// int max_compressions = (Zombie1RTT_HS.MAX_CH_SH_LEN + Zombie1RTT_HS.MAX_EXT_LEN) / 64;
 
 	max_compressions := len(input) / 64
 	for i := 0; i < max_compressions; i++ {
@@ -382,6 +414,7 @@ func SHA2_of_prefix(input []byte, tr_len_in_bytes uint16, last_block []byte) []b
 	pad := get_pad_from_length_in_bytes(tr_len_in_bytes)
 
 	last_block_len := byte(tr_len_in_bytes % uint16(64))
+
 	num_base_compressions := byte(tr_len_in_bytes / uint16(64))
 
 	H_value_base := perform_compressions(input, num_base_compressions)
